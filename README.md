@@ -1,4 +1,4 @@
-# api
+# api [![Build Status](https://travis-ci.org/Grundamnen-SE/api.svg?branch=master)](https://travis-ci.org/Grundamnen-SE/api)
 API modulen av grundämnen.se. Denna del driver all information som klienter kan ta emot och skicka.
 
 ## Användning
