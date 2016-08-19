@@ -17,15 +17,56 @@ var MongoStore = require('connect-mongo')(session);
 var Mongo = require('mongodb').Db;
 var MongoServer = require('mongodb').Server;
 
+// Own Utils
+var replaceAll = require('./modules/utils/functions.js').replaceAll;
+var isInArray = require('./modules/utils/functions.js').isInArray;
+
+// DB
+var db_info = {};
 if (process.env.NODE_ENV !== "production") {
-  var mongopath = "mongodb://localhost:27017/pesys";
-  app.use(logger("dev"));
+  db_info["host"] = "localhost";
+  db_info["port"] = 27017;
+  db_info["name"] = "pesys";
 } else {
-  var mongopath = "mongodb://db.pesys.xzy.se:27017/pesys";
+  db_info["host"] = "db.pesys.xzy.se";
+  db_info["port"] = 27017;
+  db_info["name"] = "pesys";
 }
+var mongopath = "mongodb://"+db_info['host']+":"+db_info['port']+"/"+db_info['name'];
+var db = new Mongo(db_info['name'], new MongoServer(db_info['host'], db_info['port'], {auto_reconnect: true}), {w: 1});
+db.open(function(e, d){
+  if (e) {
+    console.log(e);
+  } else {
+    console.log("MongoDB: Connected to database "+mongopath);
+    db.collection("elements").find({playbtn: true}, {element:1, number:1, playbtn:1, _id:0}).toArray(function(err, data){
+      if (err) console.log(err);
+      playbtn = data;
+    });
+    setInterval(function(){
+      db.collection("elements").find({playbtn: true}, {element:1, number:1, playbtn:1, _id:0}).toArray(function(err, data){
+        if (err) console.log(err);
+        playbtn = data;
+      });
+    }, 1000*60);
+  }
+});
+
+var elements = ["H","He","Li","Be","B","C","N","O","F","Ne","Na","Mg","Al","Si",
+                "P","S","Cl","Ar","K","Ca","Sc","Ti","V","Cr","Mn","Fe","Co","Ni",
+                "Cu","Zn","Ga","Ge","As","Se","Br","Kr","Rb","Sr","Y","Zr","Nb",
+                "Mo","Tc","Ru","Rh","Pd","Ag","Cd","In","Sn","Sb","Te","I","Xe",
+                "Cs","Ba","Hf","Ta","W","Re","Os","Ir","Pt","Au","Hg","Tl","Pb",
+                "Bi","Po","At","Rn","Fr","Ra","Rf","Db","Sg","Bh","Hs","Mt","Ds",
+                "Rg","Cn","Uut","Fl","Uup","Lv","Uus","Uuo","La","Ce","Pr","Nd",
+                "Pm","Sm","Eu","Gd","Tb","Dy","Ho","Er","Tm","Yb","Lu","Ac","Th",
+                "Pa","U","Np","Pu","Am","Cm","Bk","Cf","Es","Fm","Md","No","Lr"];
 
 // Init Express
 var app = express();
+if (process.env.NODE_ENV !== "production") {
+  app.use(logger("dev"));
+}
 app.use(helmet());
 app.use(session({
   "secret": "MSeTEw6mReerergJjBu1",
@@ -35,19 +76,23 @@ app.use(session({
   "unset": "destroy",
   "cookie": {
     "httpOnly": true
-  }
+  },
   expires: new Date(Date.now()+60*60*1000*3),
   store: new MongoStore({ url: mongopath })
 }));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({extended: true}));
-
-// Some express variables that are important
 app.enable('trust proxy');
 app.disable('x-powered-by');
 
+var router = express.Router();
+
+router.get(['/', '/user/', '/user', '/element/', '/element'], function(req, res){
+  res.send({"error": "invalid_request"})
+});
+
 // Get element data (and user data that is included)
-app.get('/api/element/:elm', function(req, res){
+router.get('/element/:elm', function(req, res){
   if (isInArray(req.params.elm, elements)) {
     db.collection('elements').findOne({element: req.params.elm}, {}, function(err, data){
       if (err) console.log(err);
@@ -85,7 +130,7 @@ app.get('/api/element/:elm', function(req, res){
 });
 
 // Update element, requires WRITE and text and elementdata
-app.post('/api/element/:elm', function(req, res){
+router.post('/element/:elm', function(req, res){
   if (isInArray(req.params.elm, elements)) {
     if (req.session.user != null) {
       if (isInArray("WRITE", req.session.user.permissions)) {
@@ -119,17 +164,12 @@ app.post('/api/element/:elm', function(req, res){
 });
 
 // Return list of everyone that helped fill information on grundämnen
-app.get('/api/contributors', function(req, res){
+router.get('/contributors', function(req, res){
   res.send({"error": "incomplete_function"});
 });
 
-// invalid url
-app.get('/api/user', function(req, res){
-  res.send({"error": "invalid_url"})
-});
-
 // Get user by id
-app.get('/api/user/:id', function(req, res){
+router.get('/user/:id', function(req, res){
   if (req.session.user != null) {
     if (req.params.id != null) {
       var id = req.params.id;
@@ -145,8 +185,13 @@ app.get('/api/user/:id', function(req, res){
   }
 });
 
-module.exports = {};
-module.exports.app = app;
+router.get('*', function(req, res){
+  res.send({"error": null});
+});
+
+module.exports = router;
+
+app.use('/api', router);
 
 app.listen(3000, function(){
   console.log("API on 3000");
